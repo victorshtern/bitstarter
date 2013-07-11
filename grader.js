@@ -24,8 +24,13 @@ References:
 var fs = require('fs');
 var program = require('commander');
 var cheerio = require('cheerio');
+var util = require('util');
+var rest = require('restler');
+
 var HTMLFILE_DEFAULT = "index.html";
 var CHECKSFILE_DEFAULT = "checks.json";
+var URL_DEFAULT = "http://thawing-thicket-4522.herokuapp.com/";
+
 
 var assertFileExists = function(infile) {
     var instr = infile.toString();
@@ -61,15 +66,49 @@ var clone = function(fn) {
     return fn.bind({});
 };
 
-if(require.main == module) {
-    program
-        .option('-c, --checks <check_file>', 'Path to checks.json', clone(assertFileExists), CHECKSFILE_DEFAULT)
-        .option('-f, --file <html_file>', 'Path to index.html', clone(assertFileExists), HTMLFILE_DEFAULT)
-        .parse(process.argv);
-    var checkJson = checkHtmlFile(program.file, program.checks);
-    var outJson = JSON.stringify(checkJson, null, 4);
-    console.log(outJson);
-} else {
-    exports.checkHtmlFile = checkHtmlFile;
+var checkUrlHtml = function(htmlCode, checksFile) {
+  $ = cheerio.load(htmlCode);
+  var checks = loadChecks(checksFile).sort();
+  var out = {};
+  for (var i in checks) {
+    var present = $(checks[i]).length > 0;
+    out[checks[i]] = present;
+  }
+//  console.log("processed checks in checkUrlHtml: ", out);
+  return out;
+ }
+
+var assertValidUrl = function(data,status) {
+  if (data instanceof Error) {
+    console.log("Error: ",status.message);
+    process.exit(1);  }
+  else if (status.statusCode != 200) {
+    console.log("Bad URL; code ",status.statusCode);
+    process.exit(1); }
+  else {
+    return true; }
 }
 
+var processHtml = function(data,status) {
+  if (assertValidUrl(data,status)) {
+    var checkJson = checkUrlHtml(data,program.checks);
+    var outJson = JSON.stringify(checkJson, null, 4);
+    console.log(outJson);  }
+}
+
+if(require.main == module) {
+    program
+        .option('-f, --file <html_file>', 'Path to index.html', clone(assertFileExists), HTMLFILE_DEFAULT)
+        .option('-c, --checks <check_file>', 'Path to checks.json', clone(assertFileExists), CHECKSFILE_DEFAULT)
+//        .option('-u,--url','Path to url','http://thawing-thicket-4522.herokuapp.com/') 
+        .option('-u,--url','Path to URL',clone(assertValidUrl),URL_DEFAULT)
+        .parse(process.argv);
+    if (program.url) {
+//       console.log("Program URL: ",program.url);
+       rest.get(program.url).on('complete',processHtml); }
+    else {
+       var checkJson = checkHtmlFile(program.file, program.checks);
+       var outJson = JSON.stringify(checkJson, null, 4);
+       console.log(outJson);
+       exports.checkHtmlFile = checkHtmlFile; }
+}
